@@ -4,13 +4,53 @@ import express from "express";
 import { applyTextEffect, Variant } from "./textEffects";
 
 import type { Variant as TextEffectVariant } from "./textEffects";
+import { Configuration, OpenAIApi } from "openai";
+
+type LastMsg = {
+  ctx: any;
+  message: any;
+};
+
+// const maxMsgsIn5Mins = 3;
+// const maxMsgsInHour = 10;
+// let user = {};
+const admins = [1215760049, 1324072016];
+const groupLink = 'https://t.me/crxfitbay';
+const navMessage = `Hi please join group ${groupLink} to get health and fitness related queries clarified`;
+// let lastMsgs = [] as Array<LastMsg>;
+const MaxMsgsToStore = 10;
+const tagMe = `Please tag me @CrxianBot for all queries related to health and fitness.`;
+
+// const verifySpam = (usr) => {
+//     let isSpam = false;
+//     if (usr && usr['count'] > maxMsgsIn5Mins) {
+//         if (((new Date).getTime() - usr['time'] <= maxMsgsIn5Mins) ||
+//             ((new Date).getTime() - usr['time'] <= maxMsgsInHour)) {
+//             isSpam = true;
+//         } else if ((new Date).getTime() - usr['time'] > maxMsgsInHour) {
+//             usr['count'] = 1;
+//             usr['time'] = (new Date).getTime();
+//         }
+//     }
+//     return isSpam;
+// }
+
+const checkIsAdmin = (message: any) => {
+    return admins.indexOf(message.from.id) !== -1;
+}
+// const request = require('request');
+
+const configuration = new Configuration({
+  apiKey: "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",
+});
+const openai = new OpenAIApi(configuration);
 
 // Create a bot using the Telegram token
-const bot = new Bot(process.env.TELEGRAM_TOKEN || "");
+const bot = new Bot(
+  process.env.TELEGRAM_TOKEN || "5848410581:AAEo8G7SQ269fEdZ5oMclC3-jf80tTTWhck"
+);
 
 // Handle the /yo command to greet the user
-bot.command("yo", (ctx) => ctx.reply(`Yo ${ctx.from?.username}`));
-
 // Handle the /effect command to apply text effects using an inline keyboard
 type Effect = { code: TextEffectVariant; label: string };
 const allEffects: Effect[] = [
@@ -153,8 +193,8 @@ for (const effect of allEffects) {
 
 // Handle the /about command
 const aboutUrlKeyboard = new InlineKeyboard().url(
-  "Host your own bot for free.",
-  "https://cyclic.sh/"
+  "Visit CRXFitbay",
+  "https://www.facebook.com/crxfitbay/"
 );
 
 // Suggest commands in the menu
@@ -168,11 +208,8 @@ bot.api.setMyCommands([
 
 // Handle all other messages and the /start command
 const introductionMessage = `Hello! I'm a Telegram bot.
-I'm powered by Cyclic, the next-generation serverless computing platform.
-
-<b>Commands</b>
-/yo - Be greeted by me
-/effect [text] - Show a keyboard to apply text effects to [text]`;
+This is a free service from CRX Fitbay. 
+Join group https://t.me/crxfitbay`;
 
 const replyWithIntro = (ctx: any) =>
   ctx.reply(introductionMessage, {
@@ -180,8 +217,112 @@ const replyWithIntro = (ctx: any) =>
     parse_mode: "HTML",
   });
 
+const onMessage = (ctx: any, message: any, tagCrx: boolean) => {
+  console.log("ctx", message.text);
+  try {
+    const username = message.from.username
+      ? `@${message.from.username}: `
+      : `${message.from.first_name}: `;
+    const userID = message.from.id;
+    const isAdmin = checkIsAdmin(message);
+    const isGroup = message.chat.type !== "private";
+    const msgText =
+      (!isAdmin || isGroup
+        ? "Respond only related to Food, Fitness and health. "
+        : "") + message.text.toLowerCase();
+    console.log("Username posted query: ", username, message.text);
+    // if (!user[userID]) {
+    //   user[userID] = {
+    //     count: 0,
+    //     time: new Date().getTime(),
+    //   };
+    // }
+    // user[userID]["count"] += 1;
+    const botName = "@crxianbot";
+    let imMentioned = tagCrx ? true : false;
+    if (message && message.entities) {
+      for (let i = 0; i < message.entities.length; i++) {
+        if (
+          message.entities[i]["type"] === "mention" &&
+          msgText.toLowerCase().indexOf(botName) != -1
+        ) {
+          imMentioned = true;
+        }
+      }
+    }
+    // if (verifySpam(user[userID]) && !isAdmin) {
+    //   ctx.reply("Sorry, too many questions in short time. Try again later", {
+    //     reply_to_message_id: message.message_id,
+    //   });
+    //   return;
+    // }
+    // if (isGroup && !tagCrx && !imMentioned) {
+    //   if (lastMsgs.length >= MaxMsgsToStore) {
+    //     lastMsgs = lastMsgs.shift();
+    //   }
+    //   lastMsgs.push({ ctx: ctx, message: message });
+    // }
+    if (imMentioned && (isGroup || isAdmin)) {
+      openai
+        .createCompletion({
+          model: "text-davinci-003",
+          prompt: msgText.replace(botName, ""),
+          temperature: 0.1,
+          max_tokens: isAdmin ? 1000 : 400,
+        })
+        .then((completion) => {
+          if (completion.data.choices[0].text) {
+            const replyText = `${completion.data.choices[0].text}.\n${
+              tagCrx ? tagMe : ""
+            }`;
+            ctx.reply(replyText, {
+              reply_to_message_id: message.message_id,
+            });
+          } else {
+            ctx.reply(`Sorry something wrong on my end. Please try again.`, {
+              reply_to_message_id: message.message_id,
+            });
+            console.log(
+              "**** No text completion",
+              msgText.replace(botName, ""),
+              completion.data.choices
+            );
+          }
+          console.log(username, msgText.replace(botName, ""), "Responded");
+        });
+    } else if (!isGroup && !isAdmin) {
+      console.log("Text private", ctx.update);
+      ctx.reply(navMessage);
+    } else if (isAdmin && isGroup) {
+    }
+  } catch (e) {
+    console.log("Error: ", e);
+  }
+};
+
 bot.command("start", replyWithIntro);
-bot.on("message", replyWithIntro);
+
+// bot.command('rlyGrp', (ctx) => {
+//   if (checkIsAdmin(ctx.message)) {
+//       // ctx.telegram.sendMessage("@crxfitbay", `The information provided here is for general informational and educational purposes only. It is not intended to be a substitue for professional medical advice, diagnosis or treatment. Always seek advice of your physician or other qualified health care provider wit any questions you may have regarding a medical condition. Never disregard professional medical advice or delay in seeking because of something you have read online or here in this group`);
+//       const msgFromLast = Number(ctx.message.text.split(' ')[1]) || 1;
+//       const msgCtx = lastMsgs.reverse()[msgFromLast - 1];
+//       if (lastMsgs.length > 0 && msgCtx) {
+//           ctx.reply(`Replying to: ${msgCtx['message']['text']}`);
+//           onMessage(msgCtx['ctx'], msgCtx['message'], true);
+//       } else {
+//           ctx.reply("Message queue empty or not found");
+//       }
+//   }
+// });
+
+bot.on("edited_message", (ctx: any) => {
+  onMessage(ctx, ctx.update.edited_message, false);
+  console.log("edited msg", ctx.update.edited_message);
+});
+bot.on("message", (ctx: any) => {
+  onMessage(ctx, ctx.message, false);
+});
 
 // Start the server
 if (process.env.NODE_ENV === "production") {
