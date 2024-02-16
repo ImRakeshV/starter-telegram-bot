@@ -41,7 +41,7 @@ const checkIsAdmin = (message: any) => {
 // const request = require('request');
 
 const configuration = new Configuration({
-  apiKey: "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",
+  apiKey: "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"//"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",
 });
 const openai = new OpenAIApi(configuration);
 
